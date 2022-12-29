@@ -1,0 +1,193 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © MuMuLLC
+
+//@version=5
+indicator("Initial Balance", shorttitle="Initial Balance", overlay=true, max_bars_back=5000)
+
+// Options
+
+ib_session = input.session("0930-1030", title="Calculation period for the initial balance", group="Calculation period")
+
+show_extra_levels = input.bool(true, "Show extra levels (IBH x2 & IBL x2)", group="Information")
+show_intermediate_levels = input.bool(true, "Show intermediate levels (50%)", group="Information")
+show_ib_calculation_area = input.bool(false, "Initial balance calculation period coloration", group="Information")
+show_labels = input.bool(true, "Show labels", group="Information")
+fill_ib_areas = input.bool(true, "Colour IB areas", group="Information")
+only_current_levels = input.bool(true, "Only display the current IB Levels", group="Information")
+only_current_zone = input.bool(false, "Only display the current IB calculation area", group="Information")
+
+show_delta_analytics = input.bool(true, "Display IB delta analytics", group="Information")
+
+label_size = input.string("Small", title="Label Size", options=["Auto", "Huge", "Large", "Normal", "Small", "Tiny"], group="Drawings")
+lvl_width = input.int(1, "Daily price level width", group="Drawings")
+high_col = input.color(color.green, "Initial balance high levels color", group="Drawings")
+low_col = input.color(color.red, "Initial balance low levels color", group="Drawings")
+middle_col = input.color(#ffa726, "50% initial balance color", group="Drawings")
+extend_level = input.string("Right", title="Extend current levels", options=["Right", "Left", "Both", "None"], group="Drawings")
+
+main_levels_style = input.string("Solid" , "Main levels line style", options=["Solid", "Dashed", "Dotted"], group="Drawings")
+ext_levels_style = input.string("Dashed" , "Extended levels line style", options=["Solid", "Dashed", "Dotted"], group="Drawings")
+int_levels_style = input.string("Dotted" , "Intermediate levels line style", options=["Solid", "Dashed", "Dotted"], group="Drawings")
+
+fill_ib_color= input.color(#b8851faa, "IB area background color", group="Drawings")
+ext = extend_level == "Right" ? extend.right : extend_level == "Left" ? extend.left : extend_level == "Both" ? extend.both : extend.none
+
+var delta_history = array.new_float(20)
+
+inSession(sess) => na(time(timeframe.period, sess)) == false
+
+get_line_style(s) =>
+    s == "Solid" ? line.style_solid : s == "Dotted" ? line.style_dotted : line.style_dashed
+
+get_levels(n) =>
+    h = high[1]
+    l = low[1]
+    for i=1 to n
+        if low[i] < l
+            l := low[i]
+        if high[i] > h
+            h := high[i]
+    [h, l, (h+l)/2]
+
+var line ibh = na
+var line ibl = na
+var line ibm = na
+var line ib_plus = na
+var line ib_minus = na
+var line ib_plus2 = na
+var line ib_minus2 = na
+var line ibm_plus = na
+var line ibm_minus = na
+
+var label labelh = na
+var label labell = na
+var label labelm = na
+var label label_plus = na
+var label label_minus = na
+var label label_plus2 = na
+var label label_minus2 = na
+var label labelm_plus = na
+var label labelm_minus = na
+var box ib_area = na
+
+labelSize = (label_size == "Huge") ? size.huge :
+     (label_size == "Large") ? size.large :
+     (label_size == "Small") ? size.small :
+     (label_size == "Tiny") ? size.tiny :
+     (label_size == "Auto") ? size.auto : size.normal
+
+var offset = 0
+
+ins = inSession(ib_session)
+
+bgcolor(show_ib_calculation_area and ins ? #673ab730 : na, title="IB calculation zone")
+var float ib_delta = na
+
+if ins
+    offset += 1
+if ins[1] and not ins
+    [h, l, m] = get_levels(offset)
+    ib_delta := h - l
+    if array.size(delta_history) >= 20
+        array.shift(delta_history)
+    array.push(delta_history, ib_delta)
+    
+    line.set_extend(ibh, extend.none)
+    line.set_extend(ibl, extend.none)
+    if show_intermediate_levels
+        line.set_extend(ibm, extend.none)
+    if show_extra_levels
+        line.set_extend(ib_plus, extend.none)
+        line.set_extend(ib_minus, extend.none)
+        line.set_extend(ib_plus2, extend.none)
+        line.set_extend(ib_minus2, extend.none)
+        if show_intermediate_levels
+            line.set_extend(ibm_plus, extend.none)
+            line.set_extend(ibm_minus, extend.none)
+    if show_labels
+        if only_current_levels
+            label.delete(labelh)
+            label.delete(labell)
+            label.delete(labelm)
+            label.delete(label_plus)
+            label.delete(label_minus)
+            label.delete(label_plus2)
+            label.delete(label_minus2)
+            label.delete(labelm_plus)
+            label.delete(labelm_minus)
+        labelh := label.new(bar_index[offset], h, text="IBH 100%: "+str.tostring(h), style=label.style_none, textcolor=high_col, size=labelSize)
+        labell := label.new(bar_index[offset], l, text="IBL 0%: "+str.tostring(l), style=label.style_none, textcolor=low_col, size=labelSize)
+        if show_intermediate_levels
+            labelm := label.new(bar_index[offset], m, text="IBM 50%: "+str.tostring(m)+"\nIBΔ: "+str.tostring(h - l), style=label.style_none, textcolor=middle_col, size=labelSize)
+        if show_extra_levels
+            label_plus := label.new(bar_index[offset], h + ib_delta, text="IBH x2 - "+str.tostring(h + ib_delta), style=label.style_none, textcolor=high_col, size=labelSize)
+            label_minus := label.new(bar_index[offset], l - ib_delta, text="IBL x2: "+str.tostring(l - ib_delta), style=label.style_none, textcolor=low_col, size=labelSize)
+            label_plus2 := label.new(bar_index[offset], h + (ib_delta*2), text="IBH x3 - "+str.tostring(h + (ib_delta*2)), style=label.style_none, textcolor=high_col, size=labelSize)
+            label_minus2 := label.new(bar_index[offset], l - (ib_delta*2), text="IBL x3: "+str.tostring(l - (ib_delta*2)), style=label.style_none, textcolor=low_col, size=labelSize)
+    if fill_ib_areas
+        if only_current_zone
+            box.delete(ib_area)
+        ib_area := box.new(bar_index[offset], h, bar_index, l, bgcolor=fill_ib_color, border_color=#00000000)//, extend=ext)
+    if only_current_levels
+        line.delete(ibh)
+        line.delete(ibl)
+        line.delete(ibm)
+        line.delete(ib_plus)
+        line.delete(ib_minus)
+        line.delete(ib_plus2)
+        line.delete(ib_minus2)
+        line.delete(ibm_plus)
+        line.delete(ibm_minus)
+     
+    ibh := line.new(bar_index[offset], h, bar_index, h, color=high_col, extend=ext, width=lvl_width, style=get_line_style(main_levels_style))
+    ibl := line.new(bar_index[offset], l, bar_index, l, color=low_col, extend=ext, width=lvl_width, style=get_line_style(main_levels_style))
+    if show_intermediate_levels
+        ibm := line.new(bar_index[offset], m, bar_index, m, color=middle_col, style=get_line_style(int_levels_style), extend=ext, width=lvl_width)
+    if show_extra_levels
+        ib_plus := line.new(bar_index[offset], h + ib_delta, bar_index, h + ib_delta, color=high_col, style=get_line_style(ext_levels_style), extend=ext, width=lvl_width)
+        ib_minus := line.new(bar_index[offset], l - ib_delta, bar_index, l - ib_delta, color=low_col, style=get_line_style(ext_levels_style), extend=ext, width=lvl_width)
+        ib_plus2 := line.new(bar_index[offset], h + (ib_delta*2), bar_index, h + (ib_delta *2), color=high_col, style=get_line_style(ext_levels_style), extend=ext, width=lvl_width)
+        ib_minus2 := line.new(bar_index[offset], l - (ib_delta*2), bar_index, l - (ib_delta*2), color=low_col, style=get_line_style(ext_levels_style), extend=ext, width=lvl_width)        
+        if show_intermediate_levels
+            ibm_plus := line.new(bar_index[offset], h + (ib_delta/2), bar_index, h + (ib_delta/2), color=middle_col, style=get_line_style(int_levels_style), extend=ext, width=lvl_width)
+            ibm_minus := line.new(bar_index[offset], l - (ib_delta/2), bar_index, l - (ib_delta/2), color=middle_col, style=get_line_style(int_levels_style), extend=ext, width=lvl_width)
+    offset := 0
+
+if (not ins) and (not ins[1])
+    line.set_x2(ibh, bar_index)
+    line.set_x2(ibl, bar_index)
+    if show_intermediate_levels
+        line.set_x2(ibm, bar_index)
+    if show_extra_levels    
+        line.set_x2(ib_plus, bar_index)
+        line.set_x2(ib_minus, bar_index)
+        line.set_x2(ib_plus2, bar_index)
+        line.set_x2(ib_minus2, bar_index)        
+        if show_intermediate_levels
+            line.set_x2(ibm_plus, bar_index)
+            line.set_x2(ibm_minus, bar_index)
+
+var table ib_analytics = table.new(position.bottom_left, 2, 6)
+
+ib_sentiment() =>
+    h = array.max(delta_history)
+    l = array.min(delta_history)
+    a = array.avg(delta_history)
+    
+    h_comp = ib_delta > h ? ib_delta - h : (ib_delta - h) * -1
+    l_comp = ib_delta > l ? ib_delta - l : (ib_delta - l) * -1
+    a_comp = ib_delta > a ? ib_delta - a : (ib_delta - a) * -1
+    (h_comp < l_comp and h_comp < a_comp) ? "Huge" : (l_comp < h_comp and l_comp < a_comp) ? "Small" : "Medium"
+    
+if show_delta_analytics
+    table.cell(ib_analytics, 0, 0, "IB Delta", bgcolor=color.black, text_color=color.white)
+    table.cell(ib_analytics, 0, 1, "20D MAX", bgcolor=color.black, text_color=color.white)
+    table.cell(ib_analytics, 1, 1, str.tostring(array.max(delta_history), "#.####"), bgcolor=color.black, text_color=high_col)
+    table.cell(ib_analytics, 0, 2, "20D AVG", bgcolor=color.black, text_color=color.white)
+    table.cell(ib_analytics, 1, 2, str.tostring(array.avg(delta_history), "#.####"), bgcolor=color.black, text_color=middle_col)
+    table.cell(ib_analytics, 0, 3, "20D MIN", bgcolor=color.black, text_color=color.white)
+    table.cell(ib_analytics, 1, 3, str.tostring(array.min(delta_history), "#.####"), bgcolor=color.black, text_color=low_col)
+    table.cell(ib_analytics, 0, 4, "Today", bgcolor=color.black, text_color=color.white)
+    table.cell(ib_analytics, 1, 4, str.tostring(ib_delta), bgcolor=color.black, text_color=color.blue)
+    table.cell(ib_analytics, 0, 5, "Status", bgcolor=color.black, text_color=color.white)
+    table.cell(ib_analytics, 1, 5, ib_sentiment() , bgcolor=color.black, text_color=color.white)
